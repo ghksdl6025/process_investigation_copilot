@@ -1,0 +1,11 @@
+case_id,activity,timestamp,resource
+C-001,Register,2026-01-03T09:05:00,agent_a
+C-001,Review,2026-01-03T10:20:00,agent_b
+C-001,Approve,2026-01-03T11:00:00,agent_c
+C-002,Register,2026-01-04T08:45:00,agent_a
+C-002,Review,2026-01-04T09:10:00,agent_b
+C-002,Rework,2026-01-04T10:30:00,agent_d
+C-002,Review,2026-01-04T11:25:00,agent_b
+C-002,Approve,2026-01-04T12:00:00,agent_c
+C-003,Register,2026-01-05T13:00:00,agent_a
+C-003,Reject,2026-01-05T13:40:00,agent_c

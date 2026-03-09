@@ -1,68 +1,68 @@
 # Process Investigation Copilot
 
-AI-assisted process investigation tool for event-log data.
+Process Investigation Copilot is a Streamlit MVP for investigating operational event logs.  
+It helps users validate data quality, compare recent vs previous performance, inspect delay drivers, explore process paths, and export a shareable investigation report.
 
-This project is a Streamlit-based MVP for exploring delays, slow-case behavior, dominant process paths, and transition bottlenecks from event logs. It combines structured backend analysis with process-oriented DFG views to support investigation workflows on sequential operational data.
+## Why This Project
 
-## Features
+Event-log investigation is often repetitive: load data, validate quality, compute case metrics, compare slow vs normal behavior, then inspect process flow.  
+This project packages that workflow into a lightweight, process-aware investigation app.
 
-- CSV upload with manual column mapping for:
-  - `case_id`
-  - `activity`
-  - `timestamp`
-- Dataset validation and profiling:
-  - required columns
-  - missing values
+## Current MVP Features
+
+- Event-log upload with column mapping (`case_id`, `activity`, `timestamp`)
+- Active dataset persistence across browser refresh:
+  - restores active dataset source, mapping, and validation/session context when available
+- Validation and profiling:
+  - required-column checks
+  - missing values and rates
   - duplicate rows
   - timestamp parsing quality
-  - date range
-  - case and activity counts
-- Reusable case-level metrics:
-  - start and end time
-  - duration
+  - date range, case count, activity count
+- Case-level metrics:
+  - start/end timestamps
+  - duration hours
   - event count
   - unique activity count
   - rework count and rework flag
 - Slow-case analysis:
-  - top 10% longest valid cases by duration
-  - slow vs non-slow comparison on activity frequency, rework, and variants
-- Process View with directly-follows graphs (DFGs):
-  - all analyzed cases
-  - slow cases
-  - non-slow cases
-  - majority cases
-  - top variant
-  - top 3 variants
-  - top 5 variants
-- Process exploration options:
-  - top-to-bottom or left-to-right layout
-  - frequency mode
-  - bottleneck-oriented mode
-  - adaptive edge labels
-  - compact rendering for denser graphs
+  - slow cases = top 10% by valid duration
+  - slow vs non-slow comparison on activities, rework, and variants
+- Period and delay analysis:
+  - recent vs previous period performance comparison
+  - activity-level delay comparison between periods
+- Process View (DFG):
+  - subsets: all, slow, non-slow, majority cases, top variant, top 3 variants, top 5 variants
+  - layouts: top-to-bottom (default) and left-to-right
+  - modes: frequency and bottleneck-oriented
+  - dense-graph compact rendering and adaptive edge labels
+- Investigation report export (PDF):
+  - single user-facing export action from Dashboard
+  - curated multi-section report (Executive Summary, Data Readiness, Performance Summary, Delay Drivers, Process Snapshot, Investigation, Next Steps)
+  - business-readable formatting and compact process snapshot graphic
 
-## Why this project
+## App Pages
 
-Event logs contain rich signals about how work actually flows, where delays accumulate, and which paths dominate. Investigating these patterns often requires repeated manual slicing, aggregation, and process-view inspection.
+- **Home**: guided start and workflow orientation
+- **Upload**: load, validate, and restore active datasets
+- **Dashboard**: summary KPIs, period comparison, delay signals, and report export
+- **Investigation**: grounded explanation blocks and evidence-driven findings
+- **Process View**: DFG-based process exploration across subsets/modes
 
-This project explores a lightweight, product-style workflow for that investigation process. The focus is on **process-aware analysis**, not on building a generic chatbot.
+## Quickstart
 
-## App pages
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-- **Upload**: load and validate event logs
-- **Dashboard**: inspect high-level metrics and slow-case comparisons
-- **Investigation**: review case-level outputs and heuristic flags
-- **Process View**: explore DFGs across different subsets and modes
+## Testing
 
-## Example workflow
+```bash
+python -m pytest -q
+```
 
-1. Upload and validate an event log
-2. Review high-level dashboard metrics
-3. Inspect slow-case ratio and comparison outputs
-4. Explore dominant and slow-case process behavior in the DFG view
-5. Use bottleneck mode to surface slower transitions for investigation
-
-## Project structure
+## Project Structure
 
 ```text
 .
@@ -74,17 +74,48 @@ This project explores a lightweight, product-style workflow for that investigati
 |   `-- 4_Process_View.py
 |-- src/process_investigation_copilot/
 |   |-- data_loader.py
+|   |-- persistence.py
+|   |-- ui.py
 |   |-- validation.py
+|   |-- reporting/
+|   |   `-- pdf_export.py
 |   `-- analysis/
+|       |-- activity_delay_analysis.py
 |       |-- dashboard_metrics.py
+|       |-- explanation_formatter.py
 |       |-- case_metrics.py
+|       |-- investigation_panel.py
+|       |-- investigation_summary.py
+|       |-- period_comparison.py
 |       |-- process_view.py
 |       |-- slow_case_analysis.py
 |       |-- summary.py
 |       `-- investigation.py
 |-- tests/
+|   |-- test_activity_delay_analysis.py
 |   |-- test_case_metrics.py
+|   |-- test_explanation_formatter.py
+|   |-- test_investigation_panel.py
+|   |-- test_investigation_summary.py
+|   |-- test_period_comparison.py
 |   |-- test_process_view.py
 |   `-- test_slow_case_analysis.py
 |-- data/sample_event_log.csv
 `-- requirements.txt
+```
+
+## Recent Updates (2026-03-09)
+
+- Simplified report export UX to a single user-facing PDF report flow.
+- Added curated report assembly with business-readable sections and improved formatting.
+- Improved report polish:
+  - consistent metric formatting
+  - cleaner executive summary and data-readiness wording
+  - compact process snapshot metadata + DFG-style visual
+  - next-step recommendations section
+- Added active dataset restoration across refresh with clear restore/failure messaging.
+- Applied cross-page UI and copy consistency polish across Home, Upload, Dashboard, Process View, and Investigation.
+
+## Status
+
+This repository is an MVP/portfolio project focused on process-aware investigation workflows, not production deployment.

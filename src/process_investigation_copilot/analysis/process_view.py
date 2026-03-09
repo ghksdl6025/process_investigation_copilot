@@ -41,6 +41,73 @@ class DFGResult:
     event_count: int
 
 
+def build_transition_insights(edges: pd.DataFrame) -> dict[str, dict[str, str]]:
+    """Build lightweight transition insight summaries from filtered DFG edges."""
+    empty_insight = {"transition": "N/A", "value": "N/A", "detail": "No transitions in view."}
+    if edges.empty:
+        return {
+            "most_frequent": empty_insight,
+            "slowest_average": empty_insight,
+            "bottleneck_candidate": empty_insight,
+        }
+
+    most_frequent_row = (
+        edges.sort_values(
+            ["transition_frequency", "avg_transition_minutes"],
+            ascending=[False, False],
+            na_position="last",
+        )
+        .iloc[0]
+    )
+    most_frequent = {
+        "transition": _transition_label(most_frequent_row),
+        "value": str(int(most_frequent_row["transition_frequency"])),
+        "detail": "Transition frequency",
+    }
+
+    timed_edges = edges.dropna(subset=["avg_transition_minutes"]).copy()
+    if timed_edges.empty:
+        slowest_average = {
+            "transition": "N/A",
+            "value": "N/A",
+            "detail": "No valid transition times.",
+        }
+    else:
+        slowest_row = timed_edges.sort_values(
+            ["avg_transition_minutes", "transition_frequency"],
+            ascending=[False, False],
+            na_position="last",
+        ).iloc[0]
+        slowest_average = {
+            "transition": _transition_label(slowest_row),
+            "value": f"{float(slowest_row['avg_transition_minutes']):.1f}m",
+            "detail": "Highest average transition time",
+        }
+
+    scoring_edges = edges.copy()
+    scoring_edges["avg_transition_minutes_filled"] = scoring_edges[
+        "avg_transition_minutes"
+    ].fillna(0.0)
+    scoring_edges["bottleneck_score"] = (
+        scoring_edges["transition_frequency"] * scoring_edges["avg_transition_minutes_filled"]
+    )
+    bottleneck_row = scoring_edges.sort_values(
+        ["bottleneck_score", "transition_frequency"],
+        ascending=[False, False],
+    ).iloc[0]
+    bottleneck_candidate = {
+        "transition": _transition_label(bottleneck_row),
+        "value": f"{float(bottleneck_row['bottleneck_score']):.1f}",
+        "detail": "Heuristic score = frequency x avg minutes",
+    }
+
+    return {
+        "most_frequent": most_frequent,
+        "slowest_average": slowest_average,
+        "bottleneck_candidate": bottleneck_candidate,
+    }
+
+
 def build_directly_follows_graph(
     event_log: pd.DataFrame,
     case_group: CaseSubset = "all",
@@ -367,3 +434,7 @@ def _edge_colors_from_avg_time(edges: pd.DataFrame) -> dict[tuple[str, str], str
 
 def _escape_label(value: str) -> str:
     return value.replace('"', '\\"')
+
+
+def _transition_label(row: pd.Series) -> str:
+    return f"{row['source_activity']} -> {row['target_activity']}"

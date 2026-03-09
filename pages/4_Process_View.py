@@ -3,18 +3,28 @@
 import streamlit as st
 
 from src.process_investigation_copilot.analysis.process_view import (
+    build_transition_insights,
     build_directly_follows_graph,
 )
 from src.process_investigation_copilot.analysis.slow_case_analysis import (
     build_slow_case_comparison,
 )
+from src.process_investigation_copilot.ui import (
+    apply_global_ui,
+    ensure_active_dataset_restored,
+    render_sidebar_branding,
+)
+
+apply_global_ui()
+render_sidebar_branding()
+ensure_active_dataset_restored()
 
 st.title("Process View")
 st.write(
-    "Explore process flow patterns using a Directly-Follows Graph (DFG). "
-    "Use subsets and analysis modes to compare dominant paths, slow-case paths, "
-    "and potential delay hotspots within the analyzed event population."
+    "Inspect process structure with a Directly-Follows Graph (DFG) and compare case subsets "
+    "to identify dominant paths and delay candidates."
 )
+st.caption("Best used after Dashboard: read the graph first, then validate details.")
 
 event_log = st.session_state.get("event_log")
 if event_log is None:
@@ -22,17 +32,6 @@ if event_log is None:
     st.stop()
 
 slow_case_result = build_slow_case_comparison(event_log)
-
-mode = st.selectbox(
-    "Analysis mode",
-    options=["frequency", "bottleneck"],
-    index=0,
-    help=(
-        "`frequency`: emphasize commonly observed transitions. "
-        "`bottleneck`: emphasize transitions with higher average transition time "
-        "for investigation (descriptive signal, not causal proof)."
-    ),
-)
 
 # Keep subset selection values backend-compatible while making UI labels easy to extend.
 subset_options = {
@@ -44,43 +43,54 @@ subset_options = {
     "Top 3 variants": "top_3_variants",
     "Top 5 variants": "top_5_variants",
 }
-subset_label = st.selectbox("Case subset", options=list(subset_options.keys()), index=0)
+
+with st.expander("View Settings", expanded=False):
+    mode = st.selectbox(
+        "Comparison mode",
+        options=["frequency", "bottleneck"],
+        index=0,
+        help=(
+            "`frequency`: emphasize common transitions. "
+            "`bottleneck`: emphasize slower transitions for investigation "
+            "(descriptive, not causal proof)."
+        ),
+    )
+    subset_label = st.selectbox("Current subset", options=list(subset_options.keys()), index=0)
+    st.caption(
+        "Subset guide: `majority_cases` uses top variants up to 50% cumulative case coverage. "
+        "`top_variant`, `top_3_variants`, and `top_5_variants` focus on dominant paths."
+    )
+
+    col_cfg1, _, col_cfg3 = st.columns(3)
+    layout_direction = col_cfg1.selectbox(
+        "Layout direction",
+        options=["TB", "LR"],
+        index=0,
+        help="`TB` is usually easier to read for denser graphs.",
+    )
+    edge_label_mode = col_cfg3.selectbox(
+        "Edge labels",
+        options=["frequency_only", "full", "none"],
+        index=0 if mode == "frequency" else 1,
+    )
+
+    default_min_freq = 2 if mode == "frequency" else 1
+    default_top_n = 15 if mode == "frequency" else 12
+    col_filter1, col_filter2 = st.columns(2)
+    min_edge_frequency = col_filter1.number_input(
+        "Minimum edge frequency",
+        min_value=1,
+        value=default_min_freq,
+        step=1,
+    )
+    top_n_edges = col_filter2.number_input(
+        "Top N edges (0 = no limit)",
+        min_value=0,
+        value=default_top_n,
+        step=1,
+    )
+
 view = subset_options[subset_label]
-
-st.caption(
-    "Subset guide: `majority_cases` selects top variants until cumulative case "
-    "coverage reaches at least 50%. `top_variant`, `top_3_variants`, and "
-    "`top_5_variants` focus on the most frequent variant paths."
-)
-
-col_cfg1, _, col_cfg3 = st.columns(3)
-layout_direction = col_cfg1.selectbox(
-    "Layout direction",
-    options=["TB", "LR"],
-    index=0,
-    help="`TB` (top-to-bottom) is generally easier for dense graphs.",
-)
-edge_label_mode = col_cfg3.selectbox(
-    "Edge labels",
-    options=["frequency_only", "full", "none"],
-    index=0 if mode == "frequency" else 1,
-)
-
-default_min_freq = 2 if mode == "frequency" else 1
-default_top_n = 15 if mode == "frequency" else 12
-col_filter1, col_filter2 = st.columns(2)
-min_edge_frequency = col_filter1.number_input(
-    "Minimum edge frequency",
-    min_value=1,
-    value=default_min_freq,
-    step=1,
-)
-top_n_edges = col_filter2.number_input(
-    "Top N edges (0 = no limit)",
-    min_value=0,
-    value=default_top_n,
-    step=1,
-)
 top_n_value = None if int(top_n_edges) == 0 else int(top_n_edges)
 
 dfg = build_directly_follows_graph(
@@ -98,18 +108,47 @@ col1, col2, col3 = st.columns(3)
 col1.metric("Cases in view", dfg.case_count)
 col2.metric("Events in view", dfg.event_count)
 col3.metric("DFG edges", int(len(dfg.edges)))
+st.markdown("### Current View")
+sum_col1, sum_col2, sum_col3 = st.columns(3)
+sum_col1.metric("Comparison Mode", "Frequency" if mode == "frequency" else "Bottleneck")
+sum_col2.metric("Current Subset", subset_label)
+sum_col3.metric(
+    "Edge Filter",
+    f"min {int(min_edge_frequency)} | top {'all' if top_n_value is None else int(top_n_value)}",
+)
+st.caption("Quick read: use Transition Insights to identify what to inspect in the graph.")
+
+insights = build_transition_insights(dfg.edges)
+st.subheader("Transition Insights")
+st.caption("Top transition signals for this current view.")
+ins_col1, ins_col2, ins_col3 = st.columns(3)
+ins_col1.metric("Most Frequent", insights["most_frequent"]["value"])
+ins_col1.write(f"Transition: `{insights['most_frequent']['transition']}`")
+
+slowest_card_title = (
+    "Slowest Avg (Focus)"
+    if mode == "bottleneck"
+    else "Slowest Avg"
+)
+ins_col2.metric(slowest_card_title, insights["slowest_average"]["value"])
+ins_col2.write(f"Transition: `{insights['slowest_average']['transition']}`")
+
+ins_col3.metric("Bottleneck Candidate", insights["bottleneck_candidate"]["value"])
+ins_col3.write(f"Transition: `{insights['bottleneck_candidate']['transition']}`")
 
 st.caption(
-    "Edge thickness represents transition frequency. Edge labels show frequency "
-    "(and average transition minutes when enabled). "
-    "In bottleneck mode, time-based edge color highlights relatively slower transitions "
-    "to support investigation. "
-    "Dense graphs are automatically rendered in a compact style for readability."
+    "How to read the DFG: thicker edges indicate more frequent transitions. "
+    "Labels show frequency (and average minutes when enabled)."
 )
+if mode == "bottleneck":
+    st.warning(
+        "Bottleneck mode is descriptive. Slower edges are investigation leads, not proof of root cause."
+    )
 
 if dfg.edges.empty:
     st.info("No transitions match the current DFG filter settings.")
 else:
+    st.subheader("Directly-Follows Graph")
     st.graphviz_chart(dfg.graphviz_dot, use_container_width=True)
     if view in {"majority_cases", "top_variant", "top_3_variants", "top_5_variants"}:
         total_cases = int(slow_case_result.summary.get("total_case_count", 0))
@@ -121,7 +160,11 @@ else:
             "top_5_variants": "Top-5-variants subset",
         }[view]
         st.caption(f"{subset_label_text} covers {dfg.case_count}/{total_cases} cases ({coverage:.1%}).")
-    st.subheader("Transition Table")
+    st.subheader("Transition Details")
+    st.caption(
+        "Supporting detail table for exact values. "
+        "Sorted by average transition time in bottleneck mode, otherwise by transition frequency."
+    )
     transition_table = dfg.edges.copy()
     if mode == "bottleneck":
         transition_table = transition_table.sort_values(
@@ -135,4 +178,14 @@ else:
             ascending=[False, False],
             na_position="last",
         )
-    st.dataframe(transition_table, use_container_width=True)
+    with st.expander("Show transition detail table", expanded=False):
+        st.dataframe(transition_table, use_container_width=True)
+
+st.divider()
+st.subheader("Next Step")
+st.caption("Use this view to inspect structure, then move to focused investigation.")
+next_col1, next_col2 = st.columns(2)
+if next_col1.button("Open Investigation", use_container_width=True):
+    st.switch_page("pages/3_Investigation.py")
+if next_col2.button("Return to Dashboard", use_container_width=True):
+    st.switch_page("pages/2_Dashboard.py")

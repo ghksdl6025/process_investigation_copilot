@@ -13,7 +13,23 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from src.process_investigation_copilot.analysis.activity_delay_analysis import (
+    ActivityDelayComparisonResult,
+    compare_activity_delay_between_periods,
+)
 from src.process_investigation_copilot.analysis.case_metrics import compute_case_metrics
+from src.process_investigation_copilot.analysis.investigation_summary import (
+    InvestigationSummaryPayload,
+    build_investigation_summary_payload,
+)
+from src.process_investigation_copilot.analysis.explanation_formatter import (
+    GroundedExplanation,
+    build_grounded_explanation,
+)
+from src.process_investigation_copilot.analysis.period_comparison import (
+    PeriodComparisonResult,
+    compare_period_case_performance,
+)
 from src.process_investigation_copilot.analysis.slow_case_analysis import (
     SlowCaseComparisonResult,
     build_slow_case_comparison,
@@ -28,6 +44,10 @@ class InvestigationOutput:
     case_durations: pd.DataFrame
     flags: pd.DataFrame
     slow_case_comparison: SlowCaseComparisonResult
+    period_comparison: PeriodComparisonResult
+    activity_delay_comparison: ActivityDelayComparisonResult
+    summary_payload: InvestigationSummaryPayload
+    grounded_explanation: GroundedExplanation
 
 
 def build_investigation_output(event_log: pd.DataFrame) -> InvestigationOutput:
@@ -38,11 +58,25 @@ def build_investigation_output(event_log: pd.DataFrame) -> InvestigationOutput:
     ].sort_values("duration_hours", ascending=False)
     flags = _build_placeholder_flags(case_metrics)
     slow_case = build_slow_case_comparison(event_log, case_metrics=case_metrics)
+    period_comparison = compare_period_case_performance(case_metrics=case_metrics)
+    activity_delay = compare_activity_delay_between_periods(
+        event_log=event_log, case_metrics=case_metrics
+    )
+    summary_payload = build_investigation_summary_payload(
+        period_result=period_comparison,
+        activity_delay_result=activity_delay,
+        slow_case_result=slow_case,
+    )
+    grounded_explanation = build_grounded_explanation(summary_payload)
     return InvestigationOutput(
         case_metrics=case_metrics,
         case_durations=durations,
         flags=flags,
         slow_case_comparison=slow_case,
+        period_comparison=period_comparison,
+        activity_delay_comparison=activity_delay,
+        summary_payload=summary_payload,
+        grounded_explanation=grounded_explanation,
     )
 
 

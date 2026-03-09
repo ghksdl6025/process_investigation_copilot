@@ -1,0 +1,33 @@
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Local IDE / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local runtime/data artifacts
+data/.active_event_log.csv
+data/.active_event_log_meta.json
+
+# Generated reports and temporary exports
+*.pdf
+exports/
+tmp/
+*.tmp
+*.log

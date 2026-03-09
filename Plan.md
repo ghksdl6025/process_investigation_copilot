@@ -15,7 +15,7 @@
 | **Must** | Basic process metrics | Total case count, activity count, variant summary, case duration | Done |
 | **Must** | Slow-case detection | Top 10% duration-based abnormal group | Done |
 | **Must** | Slow vs normal comparison | Compare activity, rework, variants | Done |
-| **Must** | Representative scenario | End-to-end flow for ��Why did processing time increase this month?�� | Partially done |
+| **Must** | Representative scenario | End-to-end flow for "Why did processing time increase this month?" | Partially done |
 | **Must** | Period comparison | Recent period vs previous period duration comparison | Done |
 | **Must** | Activity-level delay analysis | Identify which step got slower | Done |
 | **Must** | Grounded explanation block | Observation / Evidence / Interpretation / Limitations | Partially done |
@@ -39,13 +39,13 @@
 | **Could** | Latency measurement | Measure response time per question | Not done |
 | **Could** | Demo GIF / screenshots | Assets for GitHub and presentation | Not done |
 | **Should** | PDF report export | Curated business-readable export for current analysis | Done |
-| **Won��t (for now)** | Multi-agent | Complex agent orchestration | Excluded |
-| **Won��t (for now)** | Fancy auth | Authentication / user management | Excluded |
-| **Won��t (for now)** | Real-time ingestion | Streaming data | Excluded |
-| **Won��t (for now)** | Full process mining engine | Full discovery + conformance suite | Excluded |
-| **Won��t (for now)** | BPMN / Petri net full support | Full automatic modeling support | Excluded |
-| **Won��t (for now)** | Interactive graph refactor now | Full zoom/pan renderer replacement | Deferred |
-| **Won��t (for now)** | Autonomous root-cause claims | Overconfident auto-diagnosis | Excluded |
+| **Won't (for now)** | Multi-agent | Complex agent orchestration | Excluded |
+| **Won't (for now)** | Fancy auth | Authentication / user management | Excluded |
+| **Won't (for now)** | Real-time ingestion | Streaming data | Excluded |
+| **Won't (for now)** | Full process mining engine | Full discovery + conformance suite | Excluded |
+| **Won't (for now)** | BPMN / Petri net full support | Full automatic modeling support | Excluded |
+| **Won't (for now)** | Interactive graph refactor now | Full zoom/pan renderer replacement | Deferred |
+| **Won't (for now)** | Autonomous root-cause claims | Overconfident auto-diagnosis | Excluded |
 
 ---
 

@@ -40,6 +40,15 @@ This project packages that workflow into a lightweight, process-aware investigat
   - single user-facing export action from Dashboard
   - curated multi-section report (Executive Summary, Data Readiness, Performance Summary, Delay Drivers, Process Snapshot, Investigation, Next Steps)
   - business-readable formatting and compact process snapshot graphic
+- Investigation answer composition:
+  - unified answer payload between analysis and UI
+  - benchmark-question contradiction handling
+  - follow-up questions and readable trace summary
+- Report architecture migration (in progress):
+  - typed report model
+  - report composer
+  - markdown renderer
+  - existing ReportLab PDF exporter still active
 
 ## App Pages
 
@@ -78,13 +87,18 @@ python -m pytest -q
 |   |-- ui.py
 |   |-- validation.py
 |   |-- reporting/
-|   |   `-- pdf_export.py
+|   |   |-- markdown_renderer.py
+|   |   |-- pdf_export.py
+|   |   |-- report_composer.py
+|   |   |-- report_model.py
+|   |   `-- __init__.py
 |   `-- analysis/
 |       |-- activity_delay_analysis.py
 |       |-- dashboard_metrics.py
 |       |-- explanation_formatter.py
 |       |-- case_metrics.py
 |       |-- investigation_panel.py
+|       |-- investigation_answer_composer.py
 |       |-- investigation_summary.py
 |       |-- period_comparison.py
 |       |-- process_view.py
@@ -95,26 +109,24 @@ python -m pytest -q
 |   |-- test_activity_delay_analysis.py
 |   |-- test_case_metrics.py
 |   |-- test_explanation_formatter.py
+|   |-- test_investigation_answer_composer.py
 |   |-- test_investigation_panel.py
 |   |-- test_investigation_summary.py
 |   |-- test_period_comparison.py
 |   |-- test_process_view.py
+|   |-- test_report_markdown_pipeline.py
 |   `-- test_slow_case_analysis.py
 |-- data/sample_event_log.csv
 `-- requirements.txt
 ```
 
-## Recent Updates (2026-03-09)
+## Recent Updates (2026-03-12)
 
-- Simplified report export UX to a single user-facing PDF report flow.
-- Added curated report assembly with business-readable sections and improved formatting.
-- Improved report polish:
-  - consistent metric formatting
-  - cleaner executive summary and data-readiness wording
-  - compact process snapshot metadata + DFG-style visual
-  - next-step recommendations section
-- Added active dataset restoration across refresh with clear restore/failure messaging.
-- Applied cross-page UI and copy consistency polish across Home, Upload, Dashboard, Process View, and Investigation.
+- Added `InvestigationAnswerPayload` and `Investigation Answer Composer` for unified investigation rendering.
+- Improved benchmark-question handling with contradiction-aware direct answers and cautious phrasing.
+- Added readable trace summaries and evidence-driven follow-up questions in the Investigation panel.
+- Started report-model / markdown-first export migration while preserving the current PDF export path.
+- Continued iterating on report process snapshot rendering for a more curated static-report visual.
 
 ## Status
 

@@ -16,6 +16,10 @@ import pandas as pd
 from src.process_investigation_copilot.analysis.explanation_formatter import (
     ExplanationBlock,
 )
+from src.process_investigation_copilot.analysis.investigation_answer_composer import (
+    InvestigationAnswerPayload,
+    compose_investigation_answer,
+)
 from src.process_investigation_copilot.analysis.investigation import (
     InvestigationOutput,
     build_investigation_output,
@@ -57,10 +61,29 @@ class InvestigationPanelResult:
     limitations: list[str]
     follow_up_questions: list[str]
     trace: dict[str, Any]
+    summary_payload: Any | None = None
+    answer_payload: InvestigationAnswerPayload | None = None
+
+    def __post_init__(self) -> None:
+        """Populate unified answer payload for forward-compatible rendering."""
+        if self.answer_payload is None:
+            self.answer_payload = compose_investigation_answer(
+                question_type=self.question_type,
+                answer_blocks=self.answer_blocks,
+                evidence_tables=self.evidence_tables,
+                summary_payload=self.summary_payload,
+                limitations=self.limitations,
+                follow_up_questions=self.follow_up_questions,
+                metrics_used=self.metrics_used,
+                selected_context=self.selected_context,
+                trace=self.trace,
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Return machine-readable payload metadata for UI/debug output."""
         payload = asdict(self)
+        if self.answer_payload is not None:
+            payload["answer_payload"] = self.answer_payload.to_dict()
         payload["evidence_tables"] = {
             name: {"rows": int(len(table)), "columns": list(table.columns)}
             for name, table in self.evidence_tables.items()
@@ -111,7 +134,7 @@ def build_investigation_panel_result(
 
     investigation = investigation_output or build_investigation_output(event_log)
     if question_type == "why_slower":
-        return _build_why_slower_result(resolved_question, investigation)
+        return _build_why_slower_result(resolved_question, investigation, event_log)
     if question_type == "period_comparison":
         return _build_period_result(resolved_question, investigation)
     if question_type == "slow_vs_normal":
@@ -138,7 +161,7 @@ def build_core_scenario_result(
 
 
 def _build_why_slower_result(
-    question: str, investigation: InvestigationOutput
+    question: str, investigation: InvestigationOutput, event_log: pd.DataFrame
 ) -> InvestigationPanelResult:
     explanation = investigation.grounded_explanation
     blocks = [
@@ -171,6 +194,12 @@ def _build_why_slower_result(
             "period_strategy": investigation.period_comparison.strategy,
             "selected_time_window": _time_window_label(investigation.period_comparison),
             "selected_subset": "all_analyzed_cases",
+            "optional_attributes_available": [
+                column for column in ["resource", "department", "cost"] if column in event_log.columns
+            ],
+            "missing_optional_attributes": [
+                column for column in ["resource", "department"] if column not in event_log.columns
+            ],
         },
         limitations=list(investigation.summary_payload.limitations),
         follow_up_questions=_follow_ups_for("why_slower"),
@@ -194,6 +223,7 @@ def _build_why_slower_result(
             ],
             confidence_label=_confidence_from_summary(investigation.summary_payload),
         ),
+        summary_payload=investigation.summary_payload,
     )
 
 

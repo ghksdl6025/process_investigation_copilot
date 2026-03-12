@@ -58,6 +58,80 @@ def _friendly_confidence(label: str) -> str:
     return mapping.get(str(label).lower(), _humanize_label(str(label)))
 
 
+def _friendly_answer_status(value: str) -> str:
+    mapping = {
+        "supported": "Premise supported",
+        "mixed": "Mixed evidence",
+        "premise_not_supported": "Premise not supported",
+        "insufficient": "Insufficient evidence",
+    }
+    return mapping.get(str(value).lower(), _humanize_label(str(value)))
+
+
+def _friendly_overall_change_state(value: str) -> str:
+    mapping = {
+        "increase": "Increase",
+        "decrease": "Decrease",
+        "no_meaningful_overall_change": "No meaningful overall change",
+        "insufficient_evidence": "Insufficient evidence",
+    }
+    return mapping.get(str(value).lower(), _humanize_label(str(value)))
+
+
+def _friendly_trace_label(value: str) -> str:
+    mapping = {
+        "compare_period_case_performance": "Recent vs previous period comparison",
+        "compare_activity_delay_between_periods": "Activity-level delay analysis",
+        "build_slow_case_comparison": "Slow vs non-slow subset comparison",
+        "build_investigation_summary_payload": "Suspicious factor summary",
+        "build_grounded_explanation": "Grounded explanation assembly",
+        "build_directly_follows_graph": "Process transition analysis",
+        "build_transition_insights": "Transition insight summary",
+        "avg_duration_hours": "Average case duration",
+        "median_duration_hours": "Median case duration",
+        "p90_duration_hours": "P90 case duration",
+        "avg_event_count": "Average event count",
+        "activity_delay_proxy_minutes": "Activity delay proxy",
+        "rework_case_ratio": "Rework rate",
+        "variant_distribution": "Variant distribution",
+        "case_count": "Case count",
+        "activity_event_share_delta": "Activity share difference",
+        "variant_case_count": "Variant case count",
+        "transition_frequency": "Transition frequency",
+        "avg_transition_minutes": "Average transition time",
+        "bottleneck_score_heuristic": "Bottleneck heuristic score",
+        "all_analyzed_cases": "All analyzed cases",
+        "slow_vs_non_slow": "Slow vs non-slow cases",
+        "all": "All cases",
+    }
+    normalized = str(value).strip()
+    return mapping.get(normalized, _humanize_label(normalized))
+
+
+def _render_trace_summary(result: InvestigationPanelResult) -> None:
+    payload = result.answer_payload
+    if payload is None:
+        st.write("No trace summary is available.")
+        return
+
+    sections = [
+        ("Analyses used", [_friendly_trace_label(item) for item in payload.trace.analysesUsed]),
+        ("Subsets used", [_friendly_trace_label(item) for item in payload.trace.subsetsUsed]),
+        ("Metrics used", [_friendly_trace_label(item) for item in payload.trace.metricsUsed]),
+    ]
+    populated = [(title, items) for title, items in sections if items]
+    if not populated:
+        st.write("No trace summary is available.")
+        return
+
+    columns = st.columns(len(populated))
+    for index, (title, items) in enumerate(populated):
+        with columns[index]:
+            st.markdown(f"**{title}**")
+            for item in items:
+                st.write(f"- {item}")
+
+
 def _safe_float(value: object) -> float | None:
     try:
         if value is None:
@@ -182,11 +256,18 @@ def _display_table(frame, max_rows: int | None = None) -> None:
     st.dataframe(display, use_container_width=True)
 
 
+def _format_context_value(value: object) -> str:
+    if isinstance(value, (list, tuple, set)):
+        parts = [_clean_answer_text(str(item)) for item in value if str(item).strip()]
+        return ", ".join(parts) if parts else "N/A"
+    return _clean_answer_text(str(value))
+
+
 st.title("Investigation")
 st.write(
     "Ask a question and review a grounded answer with supporting evidence."
 )
-st.caption("Purpose: explain delay signals with evidence before deciding next actions.")
+st.caption("Use the benchmark question to understand what changed, what supports it, and what remains uncertain.")
 
 event_log = st.session_state.get("event_log")
 if event_log is None:
@@ -205,6 +286,7 @@ if "investigation_question_input" not in st.session_state:
     st.session_state["investigation_question_input"] = QUESTION_TEMPLATES[0]
 
 st.subheader("Quick Start Questions")
+st.caption("Start with a common investigation question, or enter your own below.")
 template_columns = st.columns(2)
 selected_template: str | None = None
 for index, template in enumerate(QUESTION_TEMPLATES):
@@ -238,31 +320,72 @@ if result is None:
     st.info("Run an investigation question to view results.")
     st.stop()
 
-st.subheader("Answer")
+answer_payload = result.answer_payload
+
+st.subheader("Investigation Answer")
+st.caption("This answer is composed from deterministic analyses and supporting evidence.")
 if not result.is_supported:
     st.warning("This question is not currently supported. Try one of the suggested questions.")
 
 summary_signals = _extract_summary_signals(result)
 if summary_signals:
-    st.markdown("**Top Signals**")
+    st.markdown("**Key Signals**")
     signal_columns = st.columns(len(summary_signals))
     for index, (label, value, help_text) in enumerate(summary_signals):
         signal_columns[index].metric(label, value, help=help_text)
 
-for block in result.answer_blocks:
-    st.markdown(f"**{block.title}**")
-    cleaned_text = _clean_answer_text(block.text)
-    if block.title.lower() == "observation":
-        st.info(cleaned_text)
-    else:
-        st.write(cleaned_text)
+if answer_payload is not None:
+    st.markdown("**Direct Answer**")
+    st.info(_clean_answer_text(answer_payload.directAnswer))
 
-with st.expander("Evidence references"):
+    section_groups = [
+        ("Key Observations", answer_payload.observations),
+        ("Supporting Evidence", answer_payload.evidence),
+        ("Interpretation", answer_payload.interpretations),
+    ]
+    for label, sections in section_groups:
+        if not sections:
+            continue
+        st.markdown(f"**{label}**")
+        for section in sections:
+            st.markdown(f"**{section.title}**")
+            st.write(_clean_answer_text(section.text))
+else:
     for block in result.answer_blocks:
-        st.write(f"- {block.title}: {', '.join(block.evidence_refs)}")
+        st.markdown(f"**{block.title}**")
+        cleaned_text = _clean_answer_text(block.text)
+        if block.title.lower() == "observation":
+            st.info(cleaned_text)
+        else:
+            st.write(cleaned_text)
 
-st.markdown("**Recommended Next Questions**")
+with st.expander("Evidence references", expanded=False):
+    if answer_payload is not None:
+        for section in (
+            answer_payload.observations
+            + answer_payload.evidence
+            + answer_payload.interpretations
+        ):
+            refs = ", ".join(section.evidence_refs) if section.evidence_refs else "None"
+            st.write(f"- {section.title}: {refs}")
+    else:
+        for block in result.answer_blocks:
+            refs = ", ".join(block.evidence_refs) if block.evidence_refs else "None"
+            st.write(f"- {block.title}: {refs}")
+
+st.markdown("**Limitations and uncertainty**")
+limitations = answer_payload.limitations if answer_payload is not None else result.limitations
+if limitations:
+    for limitation in limitations:
+        st.write(f"- {limitation}")
+else:
+    st.write("- No explicit limitations were returned.")
+
+st.markdown("**Suggested Next Questions**")
+st.caption("Use these to verify or narrow the likely delay drivers.")
 adaptive_follow_ups = _finding_based_follow_ups(result)
+if answer_payload is not None and answer_payload.followUpQuestions:
+    adaptive_follow_ups = answer_payload.followUpQuestions
 follow_up_columns = st.columns(1 if len(adaptive_follow_ups) <= 1 else 2)
 for index, follow_up in enumerate(adaptive_follow_ups):
     if follow_up_columns[index % len(follow_up_columns)].button(
@@ -278,6 +401,7 @@ for index, follow_up in enumerate(adaptive_follow_ups):
 
 st.divider()
 st.subheader("Evidence")
+st.caption("Review the strongest supporting tables and comparisons behind the answer.")
 if not result.evidence_tables and not result.evidence_charts:
     st.info("No structured evidence is available for this question.")
 
@@ -317,46 +441,50 @@ with st.expander("Detailed Evidence Tables"):
         _display_table(table_data)
 
 st.divider()
-st.subheader("Current Status")
+st.subheader("How This Answer Was Produced")
+st.caption("A concise trace of the evidence path used for the current answer.")
 trace = result.trace
-trace_col1, trace_col2, trace_col3 = st.columns(3)
-trace_col1.metric("Question Type", _humanize_label(str(trace.get("question_type", "N/A"))))
+trace_col1, trace_col2, trace_col3, trace_col4 = st.columns(4)
+question_type_label = (
+    answer_payload.questionType if answer_payload is not None else str(trace.get("question_type", "N/A"))
+)
+trace_col1.metric("Question Type", _humanize_label(str(question_type_label)))
 trace_col2.metric("Time Window", _clean_answer_text(str(trace.get("selected_time_window", "N/A"))))
-trace_col3.metric("Investigation Confidence", _friendly_confidence(str(trace.get("confidence_label", "N/A"))))
+overall_change_state = (
+    answer_payload.overallChangeState if answer_payload is not None else "insufficient_evidence"
+)
+answer_status = (
+    answer_payload.answerStatus
+    if answer_payload is not None
+    else ("supported" if result.is_supported else "insufficient")
+)
+trace_col3.metric("Overall Change", _friendly_overall_change_state(str(overall_change_state)))
+trace_col4.metric("Answer Status", _friendly_answer_status(str(answer_status)))
 st.caption(f"Current subset: {_clean_answer_text(str(trace.get('selected_subset', 'N/A')))}")
-st.markdown("**How This Answer Was Built**")
+st.markdown("**Evidence path**")
 for step in _friendly_steps(trace):
     st.write(f"- {step}")
 
-with st.expander("Analysis Details"):
+st.markdown("**Readable trace**")
+_render_trace_summary(result)
+
+context_items = result.selected_context or {}
+if context_items:
+    st.markdown("**Analysis context**")
+    for key, value in context_items.items():
+        st.write(f"- **{_humanize_label(str(key))}:** {_format_context_value(value)}")
+
+with st.expander("Detailed analysis trace", expanded=False):
     st.markdown("**Analysis Functions Executed**")
     for function_name in trace.get("analysis_functions_executed", []):
-        st.write(f"- {function_name}")
+        st.write(f"- {_friendly_trace_label(function_name)}")
     st.markdown("**Evidence Sources Used**")
     evidence_used = trace.get("evidence_used", [])
     if evidence_used:
         for evidence_name in evidence_used:
-            st.write(f"- {evidence_name}")
+            st.write(f"- {_humanize_label(str(evidence_name))}")
     else:
         st.write("- None")
-
-st.subheader("Metrics Used")
-if result.metrics_used:
-    st.write(", ".join(_humanize_label(metric) for metric in result.metrics_used))
-else:
-    st.write("No metrics were used for this question type.")
-
-st.subheader("Analysis Context")
-if result.selected_context:
-    for key, value in result.selected_context.items():
-        st.write(f"- **{_humanize_label(str(key))}:** {_clean_answer_text(str(value))}")
-else:
-    st.write("No additional context was selected.")
-
-st.divider()
-st.subheader("Limitations")
-for limitation in result.limitations:
-    st.write(f"- {limitation}")
 
 st.subheader("Next Step")
 st.caption("Use the follow-up suggestions above, or continue to process exploration.")

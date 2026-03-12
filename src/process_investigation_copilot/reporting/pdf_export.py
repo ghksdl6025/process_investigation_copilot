@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from io import BytesIO
 from collections import defaultdict
@@ -89,34 +90,43 @@ def build_curated_pdf_report(
     sections.append(executive_section)
 
     data_section: list[Any] = []
-    if _append_data_readiness(data_section, styles, validation_report, dashboard_payload):
-        sections.append(data_section)
+    _append_data_readiness(data_section, styles, validation_report, dashboard_payload)
+    sections.append(data_section)
 
     performance_section: list[Any] = []
-    if _append_performance_summary(performance_section, styles, dashboard_payload):
-        sections.append(performance_section)
+    _append_performance_summary(performance_section, styles, dashboard_payload)
+    sections.append(performance_section)
 
     delay_section: list[Any] = []
-    if _append_delay_drivers(delay_section, styles, dashboard_payload):
-        sections.append(delay_section)
+    _append_delay_drivers(delay_section, styles, dashboard_payload)
+    sections.append(delay_section)
 
     process_section: list[Any] = []
-    if _append_process_view_summary(process_section, styles, process_view_payload):
-        sections.append(process_section)
+    _append_process_view_summary(process_section, styles, process_view_payload)
+    sections.append(process_section)
 
     investigation_section: list[Any] = []
-    if _append_investigation_summary(investigation_section, styles, investigation_payload):
-        sections.append(investigation_section)
+    _append_investigation_summary(investigation_section, styles, investigation_payload)
+    sections.append(investigation_section)
+
+    limitations_section: list[Any] = []
+    _append_limitations_uncertainty(
+        limitations_section,
+        styles,
+        validation_report=validation_report,
+        investigation_payload=investigation_payload,
+    )
+    sections.append(limitations_section)
 
     next_steps_section: list[Any] = []
-    if _append_next_steps(
+    _append_next_steps(
         next_steps_section,
         styles,
         dashboard_payload=dashboard_payload,
         process_view_payload=process_view_payload,
         validation_report=validation_report,
-    ):
-        sections.append(next_steps_section)
+    )
+    sections.append(next_steps_section)
 
     for section in sections:
         story.append(CondPageBreak(72))
@@ -241,10 +251,10 @@ def _append_executive_summary(
 def _append_data_readiness(
     story: list[Any], styles: StyleSheet1, validation_report: dict[str, Any] | None, dashboard_payload: dict[str, Any]
 ) -> bool:
-    if not validation_report:
-        return False
-
     story.append(KeepTogether([Paragraph("Data Readiness", styles["SectionTitle"])]))
+    if not validation_report:
+        story.append(Paragraph("Validation details were not available at export time.", styles["Body"]))
+        return True
 
     overview = dashboard_payload.get("overview_metrics", {})
     metrics = validation_report.get("metrics", {})
@@ -281,10 +291,10 @@ def _append_data_readiness(
 
 
 def _append_performance_summary(story: list[Any], styles: StyleSheet1, payload: dict[str, Any]) -> bool:
-    if not payload:
-        return False
-
     story.append(KeepTogether([Paragraph("Performance Summary", styles["SectionTitle"])]))
+    if not payload:
+        story.append(Paragraph("Performance comparison was not available at export time.", styles["Body"]))
+        return True
 
     period_metrics = payload.get("period_metrics", {})
     recent = period_metrics.get("recent", {})
@@ -324,10 +334,11 @@ def _append_performance_summary(story: list[Any], styles: StyleSheet1, payload: 
 def _append_delay_drivers(story: list[Any], styles: StyleSheet1, payload: dict[str, Any]) -> bool:
     top_delayed = payload.get("top_delayed_activities", [])
     rework_note = payload.get("rework_signal")
-    if not top_delayed and not rework_note:
-        return False
 
     story.append(KeepTogether([Paragraph("Delay Drivers", styles["SectionTitle"])]))
+    if not top_delayed and not rework_note:
+        story.append(Paragraph("No strong delay-driver signal was available in the current export window.", styles["Body"]))
+        return True
 
     if top_delayed:
         story.append(Paragraph("Key delay signals", styles["SubsectionTitle"]))
@@ -360,26 +371,20 @@ def _append_delay_drivers(story: list[Any], styles: StyleSheet1, payload: dict[s
 
 
 def _append_process_view_summary(story: list[Any], styles: StyleSheet1, payload: dict[str, Any] | None) -> bool:
-    if not payload:
-        return False
-
     story.append(KeepTogether([Paragraph("Process Snapshot", styles["SectionTitle"])]))
-
-    summary_block: list[Any] = [_compact_process_meta_table(payload)]
-    graph_block: list[Any] = []
+    if not payload:
+        story.append(Paragraph("Process snapshot data was not available at export time.", styles["Body"]))
+        return True
     dfg_edges = payload.get("dfg_edges", [])
     top_edges = payload.get("top_edges", [])
     if dfg_edges:
-        graph_block.append(Paragraph("Directly-follows graph snapshot", styles["SubsectionTitle"]))
-        graph_block.append(_build_dfg_graph_drawing(dfg_edges))
+        story.append(Paragraph("Top 5 variant process snapshot", styles["SubsectionTitle"]))
+        story.append(_build_report_process_snapshot(payload))
     elif top_edges:
-        graph_block.append(Paragraph("Transition intensity snapshot", styles["SubsectionTitle"]))
-        graph_block.append(_build_transition_snapshot_chart(top_edges))
-
-    if graph_block:
-        story.append(_two_column_layout(summary_block, graph_block))
+        story.append(Paragraph("Transition intensity snapshot", styles["SubsectionTitle"]))
+        story.append(_build_transition_snapshot_chart(top_edges))
     else:
-        story.extend(summary_block)
+        story.append(_compact_process_meta_table(payload))
 
     insights = payload.get("insights", {})
     lines: list[str] = []
@@ -392,7 +397,7 @@ def _append_process_view_summary(story: list[Any], styles: StyleSheet1, payload:
         insight = insights.get(key)
         if not insight:
             continue
-        lines.append(f"- {label}: {_fmt_text(insight.get('transition'))} ({_fmt_text(insight.get('value'))})")
+        lines.append(f"- {label}: {_format_transition_insight(label, insight)}")
 
     if lines:
         story.append(Spacer(1, 6))
@@ -414,49 +419,84 @@ def _append_process_view_summary(story: list[Any], styles: StyleSheet1, payload:
 def _append_investigation_summary(
     story: list[Any], styles: StyleSheet1, payload: dict[str, Any] | None
 ) -> bool:
-    if not payload:
-        return False
-
-    answer_blocks = payload.get("answer_blocks", [])
-    follow_ups = payload.get("follow_up_questions", [])
-    top_factors = payload.get("top_suspicious_factors", [])
-    limitations = payload.get("limitations", [])
-    if not any([answer_blocks, follow_ups, top_factors, limitations]):
-        return False
-
     story.append(KeepTogether([Paragraph("Investigation Answer", styles["SectionTitle"])]))
+    if not payload:
+        story.append(Paragraph("A composed investigation answer was not available at export time.", styles["Body"]))
+        return True
 
+    answer_payload = payload.get("answer_payload") or {}
     question_type = _fmt_text(payload.get("question_type"))
-    support_text = "Supported" if payload.get("is_supported") else "Partially supported"
+    support_text = _investigation_support_text(payload, answer_payload)
     story.append(Paragraph(f"Question category: {question_type} | Evidence status: {support_text}", styles["Body"]))
 
-    if answer_blocks:
+    direct_answer = _fmt_text(answer_payload.get("directAnswer"))
+    if direct_answer != "N/A":
         story.append(Spacer(1, 5))
-        for block in answer_blocks:
-            title = _fmt_text(block.get("title", "Section"))
-            text = _fmt_text(block.get("text", "N/A")).replace("\n", " ")
-            story.append(Paragraph(f"<b>{title}:</b> {text}", styles["Body"]))
+        story.append(Paragraph("Direct answer", styles["SubsectionTitle"]))
+        story.append(Paragraph(direct_answer, styles["Body"]))
+    else:
+        answer_blocks = list(payload.get("answer_blocks", []) or [])
+        if answer_blocks:
+            first_block = answer_blocks[0]
+            story.append(Spacer(1, 5))
+            story.append(Paragraph("Direct answer", styles["SubsectionTitle"]))
+            story.append(Paragraph(_fmt_text(first_block.get("text", "N/A")), styles["Body"]))
 
-    if top_factors:
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Top investigation signals", styles["SubsectionTitle"]))
-        for factor in top_factors[:3]:
-            title = _fmt_text(factor.get("title"))
-            evidence = _fmt_text(factor.get("evidence"))
-            story.append(Paragraph(f"- {title}: {evidence}", styles["ReportBullet"]))
+    observations = list(answer_payload.get("observations", []) or [])
+    if observations:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("Key observations", styles["SubsectionTitle"]))
+        for item in observations[:4]:
+            story.append(Paragraph(f"- {_section_sentence(item)}", styles["ReportBullet"]))
 
-    if limitations:
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Limitations", styles["SubsectionTitle"]))
-        for limitation in limitations[:4]:
-            story.append(Paragraph(f"- {_fmt_text(limitation)}", styles["ReportBullet"]))
+    evidence_items = list(answer_payload.get("evidence", []) or [])
+    if evidence_items:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("Supporting evidence", styles["SubsectionTitle"]))
+        for item in evidence_items[:4]:
+            story.append(Paragraph(f"- {_section_sentence(item)}", styles["ReportBullet"]))
 
-    if follow_ups:
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Suggested next questions", styles["SubsectionTitle"]))
-        for question in follow_ups[:3]:
-            story.append(Paragraph(f"- {_fmt_text(question)}", styles["ReportBullet"]))
+    interpretations = list(answer_payload.get("interpretations", []) or [])
+    if interpretations:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("Interpretation", styles["SubsectionTitle"]))
+        for item in interpretations[:2]:
+            story.append(Paragraph(_fmt_text(item.get("text")), styles["Body"]))
 
+    if not any([direct_answer != "N/A", observations, evidence_items, interpretations]):
+        story.append(Paragraph("No composed investigation explanation was available for this export.", styles["Body"]))
+
+    return True
+
+
+def _append_limitations_uncertainty(
+    story: list[Any],
+    styles: StyleSheet1,
+    *,
+    validation_report: dict[str, Any] | None,
+    investigation_payload: dict[str, Any] | None,
+) -> bool:
+    story.append(KeepTogether([Paragraph("Limitations / Uncertainty", styles["SectionTitle"])]))
+
+    bullets: list[str] = []
+    if investigation_payload:
+        answer_payload = investigation_payload.get("answer_payload") or {}
+        bullets.extend(_fmt_text(item) for item in list(answer_payload.get("limitations", []) or [])[:4])
+        bullets.extend(_fmt_text(item) for item in list(investigation_payload.get("limitations", []) or [])[:4])
+
+    if validation_report:
+        bullets.extend(_normalize_messages(validation_report.get("blocking_errors", []))[:2])
+        bullets.extend(_normalize_messages(validation_report.get("warnings", []))[:2])
+
+    bullets = _dedupe_texts([item for item in bullets if item and item != "N/A"])
+    if not any("causal" in item.lower() or "causality" in item.lower() for item in bullets):
+        bullets.append("These findings show association-based investigation signals and should not be treated as proof of causality.")
+
+    for bullet in bullets[:3]:
+        story.append(Paragraph(f"- {bullet}", styles["ReportBullet"]))
+
+    if not bullets:
+        story.append(Paragraph("- No major limitations were recorded at export time.", styles["ReportBullet"]))
     return True
 
 
@@ -674,27 +714,26 @@ def _kv_table(rows: list[list[str]], label_bg: str = "#f3f4f6", widths: list[flo
 
 def _compact_process_meta_table(payload: dict[str, Any]) -> Table:
     rows = [
-        ["Mode", _fmt_text(payload.get("mode")), "Subset", _fmt_text(payload.get("subset"))],
-        ["Cases", _fmt_int(payload.get("case_count")), "Events", _fmt_int(payload.get("event_count"))],
-        ["Visible transitions", _fmt_int(payload.get("edge_count")), "", ""],
+        ["View", _fmt_text(payload.get("mode"))],
+        ["Subset", _fmt_text(payload.get("subset"))],
+        ["Cases", _fmt_int(payload.get("case_count"))],
+        ["Events", _fmt_int(payload.get("event_count"))],
+        ["Transitions", _fmt_int(payload.get("edge_count"))],
     ]
-    table = Table(rows, colWidths=[26 * mm, 30 * mm, 26 * mm, 30 * mm])
+    table = Table(rows, colWidths=[18 * mm, 34 * mm])
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eef2ff")),
-                ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#eef2ff")),
                 ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111827")),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
                 ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.8),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ("SPAN", (0, 2), (0, 2)),
-                ("SPAN", (1, 2), (3, 2)),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -759,73 +798,173 @@ def _draw_page_chrome(canvas: Any, doc: SimpleDocTemplate) -> None:
     canvas.restoreState()
 
 
-def _build_dfg_graph_drawing(dfg_edges: list[dict[str, Any]]) -> Drawing:
-    edges_df = pd.DataFrame(dfg_edges).head(28).copy()
-    if edges_df.empty:
-        return Drawing(86 * mm, 48 * mm)
-
-    edges_df["source_activity"] = edges_df["source_activity"].astype(str)
-    edges_df["target_activity"] = edges_df["target_activity"].astype(str)
-    edges_df["transition_frequency"] = pd.to_numeric(
-        edges_df["transition_frequency"], errors="coerce"
-    ).fillna(0.0)
-    edges_df = edges_df.sort_values("transition_frequency", ascending=False)
-
-    nodes = sorted(set(edges_df["source_activity"]).union(set(edges_df["target_activity"])))
-    layers = _build_graph_layers(edges_df, nodes)
-    layer_nodes: dict[int, list[str]] = defaultdict(list)
-    for node in nodes:
-        layer_nodes[layers.get(node, 0)].append(node)
-
-    width = 86 * mm
-    height = 72 * mm
+def _build_report_process_snapshot(payload: dict[str, Any]) -> Drawing:
+    dfg_edges = payload.get("dfg_edges", []) or []
+    width = 172 * mm
+    height = 84 * mm
     drawing = Drawing(width, height)
     drawing.add(Rect(0, 0, width, height, fillColor=colors.white, strokeColor=colors.HexColor("#e5e7eb")))
 
-    box_w = 20 * mm
-    box_h = 6.5 * mm
-    margin_x = 6 * mm
-    margin_y = 6 * mm
-    max_layer = max(layer_nodes.keys(), default=0)
-    x_gap = (width - 2 * margin_x - box_w) / max(max_layer, 1)
+    snapshot = _build_report_process_snapshot_data(dfg_edges)
+    if not snapshot["path"]:
+        drawing.add(
+            String(
+                8 * mm,
+                height / 2,
+                "No simplified process snapshot was available.",
+                fontName="Helvetica",
+                fontSize=8,
+                fillColor=colors.HexColor("#6b7280"),
+            )
+        )
+        return drawing
 
-    node_pos: dict[str, tuple[float, float]] = {}
-    for layer_idx in range(max_layer + 1):
-        members = sorted(layer_nodes.get(layer_idx, []))
-        if not members:
+    meta_x = 6 * mm
+    meta_y = height - 34 * mm
+    meta_w = 34 * mm
+    meta_h = 24 * mm
+    drawing.add(
+        Rect(
+            meta_x,
+            meta_y,
+            meta_w,
+            meta_h,
+            fillColor=colors.HexColor("#f8fafc"),
+            strokeColor=colors.HexColor("#d1d5db"),
+            strokeWidth=0.7,
+        )
+    )
+    _add_inset_meta_table(drawing, payload, x=meta_x, y=meta_y, width=meta_w, height=meta_h)
+
+    drawing.add(
+        String(
+            6 * mm,
+            height - 5 * mm,
+            "Top 5 variant process snapshot",
+            fontName="Helvetica-Bold",
+            fontSize=7.2,
+            fillColor=colors.HexColor("#111827"),
+        )
+    )
+
+    path = snapshot["path"]
+    branches = snapshot["branches"]
+    node_count = len(path)
+    box_w = 24 * mm
+    box_h = 9.5 * mm
+    arrow_gap = 5 * mm
+    left = 46 * mm
+    right = 7 * mm
+    available_w = width - left - right
+    if node_count > 1:
+        total_boxes = node_count * box_w
+        total_arrows = (node_count - 1) * arrow_gap
+        start_x = left + max((available_w - total_boxes - total_arrows) / 2, 0)
+    else:
+        start_x = width / 2 - box_w / 2
+    main_y = height * 0.54
+
+    node_positions: dict[str, tuple[float, float]] = {}
+    for idx, node in enumerate(path):
+        x = start_x + idx * (box_w + arrow_gap)
+        y = main_y
+        node_positions[node] = (x, y)
+        _add_snapshot_node(
+            drawing,
+            x=x,
+            y=y,
+            width=box_w,
+            height=box_h,
+            label=_shorten_report_label(node, 22),
+            fill="#eef2ff",
+            stroke="#c7d2fe",
+        )
+
+        if idx < node_count - 1:
+            next_x = start_x + (idx + 1) * (box_w + arrow_gap)
+            _add_arrow(
+                drawing,
+                x1=x + box_w,
+                y1=y + box_h / 2,
+                x2=next_x,
+                y2=y + box_h / 2,
+                stroke="#64748b",
+                width=1.2,
+            )
+
+    for edge in snapshot["path_edges"][:3]:
+        src = edge["source_activity"]
+        tgt = edge["target_activity"]
+        if src not in node_positions or tgt not in node_positions:
             continue
-        y_gap = (height - 2 * margin_y - box_h) / max(len(members), 1)
-        for i, node in enumerate(members):
-            x = margin_x + layer_idx * x_gap
-            y = height - margin_y - box_h - i * y_gap
-            node_pos[node] = (x, y)
+        sx, sy = node_positions[src]
+        tx, ty = node_positions[tgt]
+        label_x = (sx + box_w + tx) / 2
+        label_y = sy + box_h / 2 + 3.2 * mm
+        drawing.add(
+            String(
+                label_x - 2 * mm,
+                label_y,
+                _fmt_int(edge.get("transition_frequency")),
+                fontName="Helvetica-Bold",
+                fontSize=6.1,
+                fillColor=colors.HexColor("#475569"),
+            )
+        )
 
-    max_freq = float(edges_df["transition_frequency"].max()) if not edges_df.empty else 1.0
-    max_freq = max(max_freq, 1.0)
-    for _, row in edges_df.iterrows():
-        src = row["source_activity"]
-        tgt = row["target_activity"]
-        if src not in node_pos or tgt not in node_pos:
+    branch_slots = [height * 0.77, height * 0.23]
+    for idx, branch in enumerate(branches[:2]):
+        anchor = branch["anchor"]
+        target = branch["target"]
+        if anchor not in node_positions:
             continue
-        sx, sy = node_pos[src]
-        tx, ty = node_pos[tgt]
-        x1 = sx + box_w
-        y1 = sy + (box_h / 2)
-        x2 = tx
-        y2 = ty + (box_h / 2)
-        freq = float(row["transition_frequency"])
-        stroke_w = 0.4 + (freq / max_freq) * 1.8
-        drawing.add(Line(x1, y1, x2, y2, strokeColor=colors.HexColor("#94a3b8"), strokeWidth=stroke_w))
-        if freq > 0:
-            mx = (x1 + x2) / 2
-            my = (y1 + y2) / 2
-            drawing.add(String(mx + 1.2 * mm, my + 0.5 * mm, _fmt_int(freq), fontName="Helvetica", fontSize=5.8, fillColor=colors.HexColor("#475569")))
+        anchor_x, anchor_y = node_positions[anchor]
+        branch_y = branch_slots[idx]
+        branch_x = min(anchor_x + box_w + 10 * mm, width - right - box_w)
+        _add_arrow(
+            drawing,
+            x1=anchor_x + box_w / 2,
+            y1=anchor_y + box_h / 2,
+            x2=branch_x,
+            y2=branch_y + box_h / 2,
+            stroke="#94a3b8",
+            width=0.9,
+        )
+        _add_snapshot_node(
+            drawing,
+            x=branch_x,
+            y=branch_y,
+            width=box_w,
+            height=box_h,
+            label=_shorten_report_label(target, 22),
+            fill="#f8fafc",
+            stroke="#cbd5e1",
+        )
+        label = branch.get("label")
+        if label:
+            drawing.add(
+                String(
+                    branch_x,
+                    branch_y - 3 * mm,
+                    _truncate(label, 20),
+                    fontName="Helvetica",
+                    fontSize=5.8,
+                    fillColor=colors.HexColor("#64748b"),
+                )
+            )
 
-    for node, (x, y) in node_pos.items():
-        drawing.add(Rect(x, y, box_w, box_h, fillColor=colors.HexColor("#eef2ff"), strokeColor=colors.HexColor("#c7d2fe"), strokeWidth=0.6))
-        drawing.add(String(x + 1.1 * mm, y + 2.1 * mm, _truncate(node, 18), fontName="Helvetica", fontSize=6.1, fillColor=colors.HexColor("#1f2937")))
+    if snapshot["summary_note"]:
+        drawing.add(
+            String(
+                46 * mm,
+                6 * mm,
+                _truncate(snapshot["summary_note"], 90),
+                fontName="Helvetica",
+                fontSize=6.2,
+                fillColor=colors.HexColor("#6b7280"),
+            )
+        )
 
-    drawing.add(String(2.5 * mm, height - 4.4 * mm, "DFG", fontName="Helvetica-Bold", fontSize=6.5, fillColor=colors.HexColor("#111827")))
     return drawing
 
 
@@ -861,10 +1000,308 @@ def _build_graph_layers(edges_df: pd.DataFrame, nodes: list[str]) -> dict[str, i
     return layers
 
 
+def _build_report_process_snapshot_data(dfg_edges: list[dict[str, Any]]) -> dict[str, Any]:
+    edges_df = pd.DataFrame(dfg_edges)
+    required = {"source_activity", "target_activity", "transition_frequency", "avg_transition_minutes"}
+    if edges_df.empty or not required.issubset(edges_df.columns):
+        return {"path": [], "path_edges": [], "branches": [], "summary_note": ""}
+
+    edges_df = edges_df.copy()
+    edges_df["source_activity"] = edges_df["source_activity"].astype(str)
+    edges_df["target_activity"] = edges_df["target_activity"].astype(str)
+    edges_df["transition_frequency"] = pd.to_numeric(edges_df["transition_frequency"], errors="coerce").fillna(0.0)
+    edges_df["avg_transition_minutes"] = pd.to_numeric(edges_df["avg_transition_minutes"], errors="coerce").fillna(0.0)
+    edges_df = edges_df.sort_values(["transition_frequency", "avg_transition_minutes"], ascending=[False, False])
+
+    indegree: dict[str, int] = defaultdict(int)
+    outgoing: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in edges_df.to_dict(orient="records"):
+        src = row["source_activity"]
+        tgt = row["target_activity"]
+        outgoing[src].append(row)
+        indegree[tgt] += 1
+        indegree.setdefault(src, 0)
+
+    roots = [node for node in outgoing if indegree.get(node, 0) == 0]
+    if roots:
+        root = max(roots, key=lambda node: sum(edge["transition_frequency"] for edge in outgoing.get(node, [])))
+    else:
+        top_edge = edges_df.iloc[0].to_dict()
+        root = str(top_edge["source_activity"])
+
+    path = [root]
+    path_edges: list[dict[str, Any]] = []
+    branches: list[dict[str, Any]] = []
+    visited = {root}
+    current = root
+
+    while len(path) < 5:
+        candidates = [edge for edge in outgoing.get(current, []) if edge["target_activity"] not in visited]
+        if not candidates:
+            break
+        main_edge = candidates[0]
+        path_edges.append(main_edge)
+        current = str(main_edge["target_activity"])
+        path.append(current)
+        visited.add(current)
+
+        alt_candidates = [edge for edge in candidates[1:] if edge["target_activity"] not in visited]
+        if alt_candidates and len(branches) < 2:
+            alt = alt_candidates[0]
+            branches.append(
+                {
+                    "anchor": main_edge["source_activity"],
+                    "target": alt["target_activity"],
+                    "label": f"{_fmt_int(alt['transition_frequency'])} cases",
+                }
+            )
+
+    summary_note = ""
+    if path_edges:
+        strongest = path_edges[0]
+        summary_note = (
+            f"This snapshot uses the top 5 variants and follows the highest-volume path through that subset."
+        )
+        if branches:
+            summary_note += " A small number of side branches are shown for context."
+
+    return {
+        "path": path,
+        "path_edges": path_edges,
+        "branches": branches,
+        "summary_note": summary_note,
+    }
+
+
 def _truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 1)] + "..."
+
+
+def _shorten_activity_label(value: str, limit: int) -> str:
+    text = str(value).strip()
+    if len(text) <= limit:
+        return text
+
+    separators = [" -> ", ">", "|", "/"]
+    for separator in separators:
+        if separator in text:
+            parts = [part.strip() for part in text.split(separator) if part.strip()]
+            if len(parts) >= 2:
+                candidate = f"{parts[0][:8]} ... {parts[-1][:8]}"
+                if len(candidate) <= limit:
+                    return candidate
+
+    words = text.split()
+    if len(words) >= 2:
+        candidate = " ".join(word[: min(len(word), 7)] for word in words[:2])
+        if len(candidate) <= limit:
+            return candidate
+
+    return _truncate(text, limit)
+
+
+def _shorten_report_label(value: str, limit: int) -> str:
+    text = str(value).strip().replace("_", " ")
+    if len(text) <= limit:
+        return text
+
+    words = [word for word in re.split(r"[\s_/>\-|]+", text) if word]
+    if len(words) >= 2:
+        candidate = f"{words[0][:12]} {words[-1][:8]}"
+        if len(candidate) <= limit:
+            return candidate
+    if len(words) >= 3:
+        candidate = f"{words[0][:8]} {words[1][:7]} {words[2][:7]}"
+        if len(candidate) <= limit:
+            return candidate
+    if len(words) >= 2:
+        candidate = f"{words[0][:10]} {words[1][:8]}"
+        if len(candidate) <= limit:
+            return candidate
+
+    return _truncate(text, limit)
+
+
+def _section_sentence(item: dict[str, Any]) -> str:
+    title = _fmt_text(item.get("title"))
+    text = _fmt_text(item.get("text"))
+    if title == "N/A":
+        return text
+    return f"{title}: {text}"
+
+
+def _investigation_support_text(payload: dict[str, Any], answer_payload: dict[str, Any]) -> str:
+    status = _fmt_text(answer_payload.get("answerStatus"))
+    mapping = {
+        "supported": "Supported",
+        "mixed": "Mixed evidence",
+        "premise_not_supported": "Premise not supported",
+        "insufficient": "Insufficient evidence",
+    }
+    if status in mapping:
+        return mapping[status]
+    return "Supported" if payload.get("is_supported") else "Partially supported"
+
+
+def _format_transition_insight(label: str, insight: dict[str, Any]) -> str:
+    transition = _fmt_text(insight.get("transition"))
+    value = _fmt_text(insight.get("value"))
+    if label == "Bottleneck candidate":
+        qualitative = _qualitative_bottleneck_label(value)
+        return f"{transition} ({qualitative})"
+    return f"{transition} ({value})"
+
+
+def _qualitative_bottleneck_label(value: Any) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "Candidate"
+    if number >= 500:
+        return "High bottleneck signal"
+    if number >= 150:
+        return "Medium bottleneck signal"
+    return "Low bottleneck signal"
+
+
+def _dedupe_texts(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        key = item.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(item.strip())
+    return result
+
+
+def _add_snapshot_node(
+    drawing: Drawing,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    label: str,
+    fill: str,
+    stroke: str,
+) -> None:
+    drawing.add(
+        Rect(
+            x,
+            y,
+            width,
+            height,
+            fillColor=colors.HexColor(fill),
+            strokeColor=colors.HexColor(stroke),
+            strokeWidth=0.8,
+        )
+    )
+    drawing.add(
+        String(
+            x + 1.5 * mm,
+            y + 3.0 * mm,
+            label,
+            fontName="Helvetica",
+            fontSize=6.4,
+            fillColor=colors.HexColor("#1f2937"),
+        )
+    )
+
+
+def _add_arrow(
+    drawing: Drawing,
+    *,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    stroke: str,
+    width: float,
+) -> None:
+    drawing.add(
+        Line(
+            x1,
+            y1,
+            x2,
+            y2,
+            strokeColor=colors.HexColor(stroke),
+            strokeWidth=width,
+        )
+    )
+    head = 1.3 * mm
+    drawing.add(
+        Line(
+            x2,
+            y2,
+            x2 - head,
+            y2 + head / 2,
+            strokeColor=colors.HexColor(stroke),
+            strokeWidth=width,
+        )
+    )
+    drawing.add(
+        Line(
+            x2,
+            y2,
+            x2 - head,
+            y2 - head / 2,
+            strokeColor=colors.HexColor(stroke),
+            strokeWidth=width,
+        )
+    )
+
+
+def _add_inset_meta_table(
+    drawing: Drawing,
+    payload: dict[str, Any],
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    rows = [
+        ("Subset", _fmt_text(payload.get("subset"))),
+        ("Cases", _fmt_int(payload.get("case_count"))),
+        ("Events", _fmt_int(payload.get("event_count"))),
+        ("Edges", _fmt_int(payload.get("edge_count"))),
+    ]
+    drawing.add(
+        String(
+            x + 1.5 * mm,
+            y + height - 3.8 * mm,
+            "Snapshot context",
+            fontName="Helvetica-Bold",
+            fontSize=6.6,
+            fillColor=colors.HexColor("#111827"),
+        )
+    )
+    row_y = y + height - 8.5 * mm
+    for label, value in rows:
+        drawing.add(
+            String(
+                x + 1.5 * mm,
+                row_y,
+                label,
+                fontName="Helvetica-Bold",
+                fontSize=5.8,
+                fillColor=colors.HexColor("#475569"),
+            )
+        )
+        drawing.add(
+            String(
+                x + 12.5 * mm,
+                row_y,
+                _truncate(value, 16),
+                fontName="Helvetica",
+                fontSize=5.8,
+                fillColor=colors.HexColor("#1f2937"),
+            )
+        )
+        row_y -= 4.6 * mm
 
 
 def _fmt_text(value: Any) -> str:

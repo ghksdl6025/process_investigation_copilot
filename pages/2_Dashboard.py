@@ -29,6 +29,12 @@ from src.process_investigation_copilot.reporting.pdf_export import (
     build_curated_pdf_report,
     short_dashboard_payload,
 )
+from src.process_investigation_copilot.reporting.report_composer import (
+    compose_investigation_report,
+)
+from src.process_investigation_copilot.reporting.markdown_renderer import (
+    render_report_markdown,
+)
 from src.process_investigation_copilot.ui import (
     apply_global_ui,
     ensure_active_dataset_restored,
@@ -96,17 +102,17 @@ if not report_ready:
             with st.spinner("Generating report..."):
                 process_dfg = build_directly_follows_graph(
                     event_log=event_log,
-                    case_group="all",
+                    case_group="top_5_variants",
                     slow_case_result=slow_analysis,
                     min_edge_frequency=2,
-                    top_n_edges=15,
+                    top_n_edges=12,
                     layout_direction="TB",
                     visual_mode="frequency",
                     edge_label_mode="frequency_only",
                 )
                 process_payload = {
                     "mode": "frequency",
-                    "subset": "All analyzed cases",
+                    "subset": "Top 5 variants",
                     "case_count": process_dfg.case_count,
                     "event_count": process_dfg.event_count,
                     "edge_count": int(len(process_dfg.edges)),
@@ -143,6 +149,15 @@ if not report_ready:
                     activity_comparison=slow_analysis.activity_comparison,
                     rework_comparison=slow_analysis.rework_comparison,
                 )
+                report_document = compose_investigation_report(
+                    dataset_label=st.session_state.get("active_event_log_source"),
+                    validation_report=st.session_state.get("validation_report"),
+                    dashboard_payload=dashboard_payload,
+                    process_view_payload=process_payload,
+                    investigation_payload=investigation_payload,
+                )
+                st.session_state["export_report_document"] = report_document.to_dict()
+                st.session_state["export_report_markdown"] = render_report_markdown(report_document)
                 report_bytes = build_curated_pdf_report(
                     dataset_label=st.session_state.get("active_event_log_source"),
                     validation_report=st.session_state.get("validation_report"),
